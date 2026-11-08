@@ -1,0 +1,44 @@
+
+name: Package Garage Auction
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract JAR
+        run: |
+          mkdir -p output
+
+          ZIP=$(find . -maxdepth 1 -type f -iname '*.zip' | head -n 1)
+
+          if [ -z "$ZIP" ]; then
+            echo "No ZIP archive found"
+            exit 1
+          fi
+
+          unzip -o "$ZIP" -d extracted
+
+          JAR=$(find extracted -type f -iname '*.jar' | head -n 1)
+
+          if [ -z "$JAR" ]; then
+            echo "No JAR found inside ZIP"
+            exit 1
+          fi
+
+          cp "$JAR" output/GarageAuction.jar
+          echo "JAR successfully extracted"
+
+      - name: Upload Minecraft Mod
+        uses: actions/upload-artifact@v4
+        with:
+          name: GarageAuction-JAR
+          path: output/GarageAuction.jar
