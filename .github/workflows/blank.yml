@@ -21,90 +21,110 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Extract source and locate Gradle project
+        id: locate
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SOURCE_DIR="$GITHUB_WORKSPACE/_tacticalarena_source"
+
+          if [ -f "build.gradle" ] || [ -f "build.gradle.kts" ]; then
+            SOURCE_DIR="$GITHUB_WORKSPACE"
+            echo "Gradle project found in repository root."
+          else
+            ARCHIVE=""
+
+            if [ -f "TacticalArena-0.3.0-dev-FULL-PROJECT.zip" ]; then
+              ARCHIVE="TacticalArena-0.3.0-dev-FULL-PROJECT.zip"
+            else
+              ARCHIVE=$(find . -maxdepth 1 -type f \
+                -iname 'TacticalArena*.zip' \
+                | sort -V | tail -n 1 || true)
+            fi
+
+            if [ -z "$ARCHIVE" ] || [ ! -f "$ARCHIVE" ]; then
+              echo "::error::Tactical Arena ZIP archive not found!"
+              ls -la
+              exit 1
+            fi
+
+            echo "Using archive: $ARCHIVE"
+
+            unzip -t "$ARCHIVE"
+
+            rm -rf "$SOURCE_DIR"
+            mkdir -p "$SOURCE_DIR"
+            unzip -oq "$ARCHIVE" -d "$SOURCE_DIR"
+          fi
+
+          PROJECT_FILE=$(find "$SOURCE_DIR" \
+            -type f \
+            \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
+            -not -path "*/.gradle/*" \
+            -not -path "*/build/*" \
+            | sort | head -n 1 || true)
+
+          if [ -z "$PROJECT_FILE" ]; then
+            PROJECT_FILE=$(find "$SOURCE_DIR" \
+              -type f \
+              \( -name "build.gradle" -o -name "build.gradle.kts" \) \
+              -not -path "*/.gradle/*" \
+              -not -path "*/build/*" \
+              | sort | head -n 1 || true)
+          fi
+
+          if [ -z "$PROJECT_FILE" ]; then
+            echo "::error::Gradle project not found!"
+            find "$SOURCE_DIR" -maxdepth 6 -type f | head -n 300
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$PROJECT_FILE")
+
+          if [ ! -d "$PROJECT_DIR/src/main/java" ]; then
+            echo "::error::Java source directory not found!"
+            find "$PROJECT_DIR" -maxdepth 4 -type f
+            exit 1
+          fi
+
+          echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+
+          echo "--------------------------------"
+          echo "Gradle project found:"
+          echo "$PROJECT_DIR"
+          echo "--------------------------------"
+
+          ls -la "$PROJECT_DIR"
+
       - name: Set up Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
 
       - name: Set up Gradle 8.8
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.8'
 
-      - name: Locate project or extract uploaded archive
-        id: locate
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          SOURCE_DIR="$GITHUB_WORKSPACE"
-
-          if [ ! -f "$SOURCE_DIR/build.gradle" ] && [ ! -f "$SOURCE_DIR/build.gradle.kts" ]; then
-            ARCHIVE="TacticalArena-0.3.0-dev-FULL-PROJECT.zip"
-
-            if [ ! -f "$ARCHIVE" ]; then
-              ARCHIVE=$(find . -maxdepth 1 -type f -iname 'TacticalArena*.zip' \
-                | sort -V | tail -n 1 || true)
-            fi
-
-            if [ -z "$ARCHIVE" ] || [ ! -f "$ARCHIVE" ]; then
-              echo "::error::No Gradle project or TacticalArena ZIP archive found."
-              ls -la
-              exit 1
-            fi
-
-            echo "Using source archive: $ARCHIVE"
-            unzip -t "$ARCHIVE"
-            SOURCE_DIR="$GITHUB_WORKSPACE/_tacticalarena_source"
-            rm -rf "$SOURCE_DIR"
-            mkdir -p "$SOURCE_DIR"
-            unzip -oq "$ARCHIVE" -d "$SOURCE_DIR"
-          fi
-
-          PROJECT_FILE=$(find "$SOURCE_DIR" -type f \
-            \( -name 'settings.gradle' -o -name 'settings.gradle.kts' \) \
-            -not -path '*/.gradle/*' -not -path '*/build/*' \
-            | sort | head -n 1 || true)
-
-          if [ -z "$PROJECT_FILE" ]; then
-            PROJECT_FILE=$(find "$SOURCE_DIR" -type f \
-              \( -name 'build.gradle' -o -name 'build.gradle.kts' \) \
-              -not -path '*/.gradle/*' -not -path '*/build/*' \
-              | sort | head -n 1 || true)
-          fi
-
-          if [ -z "$PROJECT_FILE" ]; then
-            echo "::error::Gradle project not found after extraction."
-            find "$SOURCE_DIR" -maxdepth 6 -type f | head -n 300
-            exit 1
-          fi
-
-          PROJECT_DIR=$(dirname "$PROJECT_FILE")
-          if [ ! -d "$PROJECT_DIR/src/main/java" ]; then
-            echo "::error::Java source directory not found."
-            exit 1
-          fi
-
-          echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
-          echo "Found project: $PROJECT_DIR"
-          ls -la "$PROJECT_DIR"
-
-      - name: Verify build tools
+      - name: Verify environment
         run: |
           java -version
           gradle --version
 
-      - name: Build mod
+      - name: Build Tactical Arena
         working-directory: ${{ steps.locate.outputs.project_dir }}
         shell: bash
         run: |
           set -euo pipefail
-          if [ -f ./gradlew ]; then
+
+          if [ -f "./gradlew" ]; then
+            echo "Using Gradle Wrapper."
             chmod +x ./gradlew
             ./gradlew --no-daemon clean build --stacktrace
           else
+            echo "Using installed Gradle 8.8."
             gradle --no-daemon clean build --stacktrace
           fi
 
@@ -113,11 +133,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          find build/libs -maxdepth 1 -type f -name '*.jar' -print
-          if ! find build/libs -maxdepth 1 -type f -name '*.jar' -print -quit | grep -q .; then
-            echo "::error::Build finished without producing a JAR."
+
+          if ! find build/libs -maxdepth 1 -type f -name '*.jar' \
+            -print -quit | grep -q .; then
+            echo "::error::No JAR file was generated!"
             exit 1
           fi
+
+          echo "Generated JAR:"
+          ls -lh build/libs/*.jar
 
       - name: Upload Tactical Arena JAR
         uses: actions/upload-artifact@v4
