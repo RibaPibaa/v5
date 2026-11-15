@@ -29,34 +29,18 @@ jobs:
         with:
           gradle-version: '8.8'
 
-      - name: Find project and build
-        shell: bash
+      - name: Extract source archive
         run: |
-          PROJECT_FILE=$(find . -type f -name "settings.gradle" -not -path "./.git/*" -print -quit)
+          unzip -q Last_Stop_Desert_Diner_Stage2_0.2.0_Source.zip -d source
 
-          if [ -z "$PROJECT_FILE" ]; then
-            echo "ERROR: settings.gradle was not found!"
-            echo "Repository contents:"
-            ls -la
-            exit 1
-          fi
-
-          PROJECT_DIR=$(dirname "$PROJECT_FILE")
-
-          echo "Found Gradle project: $PROJECT_DIR"
-          cd "$PROJECT_DIR"
-
-          if [ ! -f build.gradle ]; then
-            echo "ERROR: build.gradle was not found in $PROJECT_DIR"
-            exit 1
-          fi
-
-          gradle build --no-daemon
+      - name: Build mod
+        working-directory: ./source/Desert_Diner_Core_0.2.0
+        run: gradle build --no-daemon
 
       - name: Upload mod JAR
         uses: actions/upload-artifact@v4
         with:
           name: desert-diner-core-0.2.0
-          path: '**/build/libs/desert-diner-core-0.2.0.jar'
+          path: source/Desert_Diner_Core_0.2.0/build/libs/*.jar
           if-no-files-found: error
           retention-days: 14
