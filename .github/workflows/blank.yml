@@ -30,12 +30,13 @@ jobs:
           gradle-version: '8.8'
 
       - name: Build mod
+        working-directory: ./Desert_Diner_Core_0.2.0
         run: gradle build --no-daemon
 
       - name: Upload mod JAR
         uses: actions/upload-artifact@v4
         with:
           name: desert-diner-core-0.2.0
-          path: build/libs/desert-diner-core-0.2.0.jar
+          path: Desert_Diner_Core_0.2.0/build/libs/desert-diner-core-0.2.0.jar
           if-no-files-found: error
           retention-days: 14
